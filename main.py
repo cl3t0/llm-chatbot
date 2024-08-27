@@ -1,34 +1,54 @@
-from llama_index.core.llms import ChatMessage
+from llama_index.core.llms import ChatMessage, MessageRole
 from llama_index.llms.bedrock import Bedrock
 import streamlit as st
 from pypdf import PdfReader
 
 prompt = st.chat_input("Say something")
-file_upload = st.sidebar.file_uploader("Send me a file")
+file_upload = st.sidebar.file_uploader("Send a small PDFs")
+clear_conversation = st.sidebar.button("🗑️ Clear conversation", type="primary")
+
+model = Bedrock(model="mistral.mistral-7b-instruct-v0:2")
+
+file_text = None
+if file_upload is not None:
+    with open("temp.pdf", "wb") as f:
+        f.write(file_upload.getvalue())
+
+    reader = PdfReader("temp.pdf")
+    file_text = "\n\n".join([page.extract_text() for page in reader.pages])
+
+if "messages" not in st.session_state:
+    st.session_state.messages = []
+
+if clear_conversation:
+    st.session_state.messages = []
+
+for message in st.session_state.messages:
+    with st.chat_message(message.role.value):
+        st.markdown(message.content)
 
 if prompt is not None:
-    user_message = st.chat_message("user")
-    user_message.write(prompt)
+    with st.chat_message("user"):
+        st.markdown(prompt)
+    st.session_state.messages.append(ChatMessage(role=MessageRole.USER, content=prompt))
 
-    file_text = ""
-    if file_upload is not None:
-
-        with open("temp.pdf", "wb") as f:
-            f.write(file_upload.getvalue())
-
-        reader = PdfReader("temp.pdf")
-        page = reader.pages[0]
-        file_text = page.extract_text()
     messages = [
         ChatMessage(
-            role="system", content="You are a pirate with a colorful personality"
+            role=MessageRole.SYSTEM, content=f"Uploaded file content: {file_text}"
         ),
-        ChatMessage(role="user", content=f"{file_text}\n\n{prompt}"),
+        *st.session_state.messages,
     ]
 
-    resp = Bedrock(
-        model="mistral.mistral-7b-instruct-v0:2"
-    ).chat(messages)
+    resp = model.chat(messages)
 
-    bot_message = st.chat_message("assistant")
-    bot_message.write(resp.message.content)
+    resp_text = resp.message.content
+    print(resp_text)
+    if resp_text.find("user:") != -1:
+        resp_text = resp_text[:resp_text.find("user:")]
+
+    with st.chat_message("assistant"):
+        st.markdown(resp_text)
+
+    st.session_state.messages.append(
+        ChatMessage(role=MessageRole.ASSISTANT, content=resp_text)
+    )
